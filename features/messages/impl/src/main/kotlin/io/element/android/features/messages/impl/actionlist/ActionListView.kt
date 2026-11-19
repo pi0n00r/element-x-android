@@ -56,6 +56,7 @@ import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import io.element.android.compound.theme.ElementTheme
 import io.element.android.compound.tokens.generated.CompoundIcons
+import io.element.android.features.messages.impl.R
 import io.element.android.features.messages.impl.actionlist.model.TimelineItemAction
 import io.element.android.features.messages.impl.crypto.sendfailure.VerifiedUserSendFailure
 import io.element.android.features.messages.impl.crypto.sendfailure.VerifiedUserSendFailure.ChangedIdentity
@@ -248,7 +249,7 @@ private fun ActionListViewContent(
                         modifier = Modifier.clickable {
                             onActionClick(action)
                         },
-                        headlineContent = {
+                        content = {
                             Text(text = stringResource(id = action.titleRes))
                         },
                         leadingContent = ListItemContent.Icon(IconSource.Resource(action.icon)),
@@ -449,9 +450,9 @@ private fun VerifiedUserSendFailureView(
     fun VerifiedUserSendFailure.headline(): String {
         return when (this) {
             is None -> ""
-            is UnsignedDevice.FromOther -> stringResource(CommonStrings.screen_timeline_item_menu_send_failure_unsigned_device, userDisplayName)
-            is UnsignedDevice.FromYou -> stringResource(CommonStrings.screen_timeline_item_menu_send_failure_you_unsigned_device)
-            is ChangedIdentity -> stringResource(CommonStrings.screen_timeline_item_menu_send_failure_changed_identity, userDisplayName)
+            is UnsignedDevice.FromOther -> stringResource(R.string.screen_timeline_item_menu_send_failure_unsigned_device, userDisplayName)
+            is UnsignedDevice.FromYou -> stringResource(R.string.screen_timeline_item_menu_send_failure_you_unsigned_device)
+            is ChangedIdentity -> stringResource(R.string.screen_timeline_item_menu_send_failure_changed_identity, userDisplayName)
         }
     }
 
@@ -461,7 +462,7 @@ private fun VerifiedUserSendFailureView(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.ErrorSolid())),
         trailingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.ChevronRight())),
-        headlineContent = {
+        content = {
             Text(
                 text = sendFailure.headline(),
                 style = ElementTheme.typography.fontBodySmMedium,
@@ -514,7 +515,7 @@ private fun EmojiButton(
 @PreviewsDayNight
 @Composable
 internal fun ActionListViewContentPreview(
-    @PreviewParameter(ActionListStateProvider::class) state: ActionListState
+    @PreviewParameter(ActionListStatePreviewParam::class) state: ActionListState
 ) = ElementPreview {
     ActionListViewContent(
         state = state,

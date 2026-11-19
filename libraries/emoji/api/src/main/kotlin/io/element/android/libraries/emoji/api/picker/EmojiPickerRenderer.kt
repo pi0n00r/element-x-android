@@ -13,13 +13,21 @@ import androidx.compose.ui.Modifier
 import io.element.android.emojibasebindings.Emoji
 import kotlinx.collections.immutable.ImmutableSet
 
+/**
+ * Renders the emoji picker, so that callers can embed it without depending on its implementation.
+ *
+ * See [NoOpEmojiPickerRenderer] for a renderer that draws nothing, used where the picker is disabled.
+ */
 @Immutable
 interface EmojiPickerRenderer {
     /**
+     * Draws the picker.
+     *
      * @param state opaque state produced by [EmojiPickerPresenter.present].
      * @param onSelectEmoji invoked when the user taps an emoji (including a skin-tone variant).
      * @param selectedEmojis emojis to visually mark as already selected.
      * @param modifier layout modifier for the picker container.
+     * @param onBackspace when supplied, the picker shows a backspace key that invokes it, allowing a picker standing in for the keyboard to delete as well.
      * @param contentDescription accessibility label for each emoji cell.
      */
     @Composable
@@ -28,6 +36,7 @@ interface EmojiPickerRenderer {
         onSelectEmoji: (Emoji) -> Unit,
         selectedEmojis: ImmutableSet<String>,
         modifier: Modifier = Modifier,
+        onBackspace: (() -> Unit)? = null,
         contentDescription: @Composable (Emoji, Boolean) -> String = { emoji, _ -> emoji.unicode },
     )
 }
@@ -39,6 +48,7 @@ object NoOpEmojiPickerRenderer : EmojiPickerRenderer {
         onSelectEmoji: (Emoji) -> Unit,
         selectedEmojis: ImmutableSet<String>,
         modifier: Modifier,
+        onBackspace: (() -> Unit)?,
         contentDescription: @Composable (Emoji, Boolean) -> String,
     ) = Unit
 }

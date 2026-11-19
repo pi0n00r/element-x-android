@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,7 +55,7 @@ import io.element.android.libraries.mediaviewer.impl.model.aMediaItemVoice
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.voiceplayer.api.VoiceMessageEvent
 import io.element.android.libraries.voiceplayer.api.VoiceMessageState
-import io.element.android.libraries.voiceplayer.api.VoiceMessageStateProvider
+import io.element.android.libraries.voiceplayer.api.VoiceMessageStatePreviewParam
 import io.element.android.libraries.voiceplayer.api.aVoiceMessageState
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
@@ -92,14 +93,17 @@ private fun VoiceInfoRow(
         state.eventSink(VoiceMessageEvent.PlayPause)
     }
 
+    val shape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(shape)
             .background(
                 color = ElementTheme.colors.bgSubtleSecondary,
-                shape = RoundedCornerShape(12.dp),
+                shape = shape,
             )
             .combinedClickable(
+                interactionSource = null,
+                indication = ripple(focusRingShape = shape),
                 onClick = {},
                 onLongClick = onLongClick,
                 onLongClickLabel = stringResource(CommonStrings.action_open_context_menu),
@@ -153,6 +157,9 @@ private fun VoiceInfoRow(
             onSeek = {
                 state.eventSink(VoiceMessageEvent.Seek(it))
             },
+            isPlaying = state.isPlaying,
+            durationMs = state.durationMs,
+            playbackSpeed = state.playbackSpeed,
             seekEnabled = !isValidating,
         )
     }
@@ -279,7 +286,7 @@ private fun CustomIconButton(
 @PreviewsDayNight
 @Composable
 internal fun VoiceItemViewPreview(
-    @PreviewParameter(MediaItemVoiceProvider::class) voice: MediaItem.Voice,
+    @PreviewParameter(MediaItemVoicePreviewParam::class) voice: MediaItem.Voice,
 ) = ElementPreview {
     val states = remember {
         listOf(
@@ -304,7 +311,7 @@ internal fun VoiceItemViewPreview(
 @PreviewsDayNight
 @Composable
 internal fun VoiceItemViewPlayPreview(
-    @PreviewParameter(VoiceMessageStateProvider::class) state: VoiceMessageState,
+    @PreviewParameter(VoiceMessageStatePreviewParam::class) state: VoiceMessageState,
 ) = ElementPreview {
     val validationState = remember {
         listOf(

@@ -16,10 +16,10 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.SingleIn
 import io.element.android.appconfig.RageshakeConfig
-import io.element.android.features.rageshake.api.logs.createWriteToFilesConfiguration
 import io.element.android.features.rageshake.api.reporter.BugReporter
 import io.element.android.features.rageshake.api.reporter.BugReporterListener
 import io.element.android.features.rageshake.impl.crash.CrashDataStore
+import io.element.android.features.rageshake.impl.logs.LOG_DIRECTORY_NAME
 import io.element.android.features.rageshake.impl.screenshot.ScreenshotHolder
 import io.element.android.libraries.androidutils.file.compressFile
 import io.element.android.libraries.androidutils.file.safeDelete
@@ -32,18 +32,12 @@ import io.element.android.libraries.di.annotations.ApplicationContext
 import io.element.android.libraries.matrix.api.MatrixClientProvider
 import io.element.android.libraries.matrix.api.SdkMetadata
 import io.element.android.libraries.matrix.api.core.UserId
-import io.element.android.libraries.matrix.api.tracing.TracingService
 import io.element.android.libraries.network.useragent.UserAgentProvider
 import io.element.android.libraries.sessionstorage.api.SessionStore
-import io.element.android.libraries.sessionstorage.api.sessionIdFlow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
@@ -83,36 +77,25 @@ class DefaultBugReporter(
     private val bugReporterUrlProvider: BugReporterUrlProvider,
     private val sdkMetadata: SdkMetadata,
     private val matrixClientProvider: MatrixClientProvider,
-    private val tracingService: TracingService,
 ) : BugReporter {
     companion object {
         // filenames
         private const val LOG_CAT_FILENAME = "logcat.log"
-        private const val LOG_DIRECTORY_NAME = "logs"
     }
 
     private val logcatCommandDebug = arrayOf("logcat", "-d", "-v", "threadtime", "*:*")
     private var currentTracingLogLevel: String? = null
 
     private val baseLogDirectory = File(context.cacheDir, LOG_DIRECTORY_NAME)
-    private var currentLogDirectory: File = baseLogDirectory
 
     init {
-        if (buildMeta.isEnterpriseBuild) {
-            val logSubfolder = runBlocking {
-                sessionStore.getLatestSession()
-            }?.userId?.let(::UserId)?.domainName
-            setCurrentLogDirectory(logSubfolder)
-            sessionStore.sessionIdFlow()
-                .map {
-                    it?.let(::UserId)?.domainName
-                }
-                .distinctUntilChanged()
-                .onEach { logSubfolder ->
-                    setCurrentLogDirectory(logSubfolder)
-                    tracingService.updateWriteToFilesConfiguration(createWriteToFilesConfiguration())
-                }
-                .launchIn(appCoroutineScope)
+        // Logs used to be stored in a subfolder per domain. This did not work with multiple accounts,
+        // since several sessions can run in parallel and the log file writer is global.
+        // Delete the legacy subfolders, they will not be read nor rotated anymore.
+        appCoroutineScope.launch(coroutineDispatchers.io) {
+            baseLogDirectory.listFiles()
+                ?.filter { it.isDirectory }
+                ?.forEach { it.deleteRecursively() }
         }
     }
 
@@ -152,7 +135,7 @@ class DefaultBugReporter(
                         append("\n\n\n\n--------------------------------- crash call stack ---------------------------------\n")
                         append(crashCallStack)
                     }
-                }
+                }.truncateDescription()
                 val gzippedFiles = mutableListOf<File>()
                 var filesTooBig = emptyList<String>()
 
@@ -185,6 +168,7 @@ class DefaultBugReporter(
                     .addFormDataPart("device", Build.MODEL.trim())
                     .addFormDataPart("locale", Locale.getDefault().toString())
                     .addFormDataPart("sdk_sha", sdkMetadata.sdkGitSha)
+                    .addFormDataPart("sha", buildMeta.gitRevision)
                     .addFormDataPart("local_time", LocalDateTime.now().format(DateTimeFormatter.ISO_DATE_TIME))
                     .addFormDataPart("utc_time", LocalDateTime.ofInstant(Instant.now(), ZoneOffset.UTC).format(DateTimeFormatter.ISO_DATE_TIME))
                     .addFormDataPart("app_id", buildMeta.applicationId)
@@ -388,37 +372,8 @@ class DefaultBugReporter(
     }
 
     override fun logDirectory(): File {
-        return currentLogDirectory.apply {
+        return baseLogDirectory.apply {
             mkdirs()
-        }
-    }
-
-    private fun setCurrentLogDirectory(subfolderName: String?) {
-        currentLogDirectory = if (subfolderName == null) {
-            baseLogDirectory
-        } else {
-            File(baseLogDirectory, subfolderName)
-        }
-    }
-
-    suspend fun deleteAllFiles(predicate: (File) -> Boolean) {
-        withContext(coroutineDispatchers.io) {
-            deleteAllFilesRecursive(baseLogDirectory, predicate)
-        }
-    }
-
-    private fun deleteAllFilesRecursive(
-        directory: File,
-        predicate: (File) -> Boolean,
-    ) {
-        directory.listFiles()?.forEach { file ->
-            if (file.isDirectory) {
-                deleteAllFilesRecursive(file, predicate)
-            } else {
-                if (predicate(file)) {
-                    file.safeDelete()
-                }
-            }
         }
     }
 
@@ -492,5 +447,14 @@ class DefaultBugReporter(
 
     private fun countLogLines(file: File): Int {
         return file.reader().useLines { it.count() }
+    }
+
+    private fun String.truncateDescription(): String {
+        return if (length <= RageshakeConfig.MAX_DESCRIPTION_SIZE) {
+            this
+        } else {
+            take(RageshakeConfig.MAX_DESCRIPTION_SIZE) +
+                "\n\n--------------------------------- truncated, see the attached logs ---------------------------------"
+        }
     }
 }

@@ -7,12 +7,12 @@
 
 package io.element.android.features.preferences.impl.userstatus
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.input.maxLength
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -72,47 +73,65 @@ fun UserStatusView(
     emojiPickerRenderer: EmojiPickerRenderer,
     modifier: Modifier = Modifier,
 ) {
-    when (val pickerState = state.pickerState) {
-        UserStatusPickerState.Hidden, UserStatusPickerState.ShowingPicker -> {
-            val displayedStatus = state.displayedStatus
-            if (displayedStatus != null) {
-                CurrentStatusRow(
-                    displayedStatus = displayedStatus,
-                    onClick = { state.eventSink(UserStatusEvent.OpenPicker) },
-                    onClear = { state.eventSink(UserStatusEvent.ClearStatus) },
-                    modifier = modifier,
-                )
-            } else {
-                EmptyStatusRow(
-                    onClick = { state.eventSink(UserStatusEvent.OpenPicker) },
-                    modifier = modifier,
-                )
+    AnimatedContent(
+        targetState = state,
+        contentKey = {
+            when (it.pickerState) {
+                UserStatusPickerState.Hidden,
+                UserStatusPickerState.ShowingPicker -> if (state.displayedStatus != null) 0 else 1
+                is UserStatusPickerState.CustomInput -> 2
             }
-            if (pickerState == UserStatusPickerState.ShowingPicker) {
-                UserStatusPickerBottomSheet(
-                    currentRawStatus = state.rawStatus,
-                    onDismiss = { state.eventSink(UserStatusEvent.DismissPicker) },
-                    onSelectPredefinedStatus = { status -> state.eventSink(UserStatusEvent.SetStatus(status)) },
-                    onSelectCustomStatus = { state.eventSink(UserStatusEvent.OpenCustomInput) },
+        },
+    ) { userStatusState ->
+        when (val pickerState = userStatusState.pickerState) {
+            UserStatusPickerState.Hidden,
+            UserStatusPickerState.ShowingPicker -> {
+                val displayedStatus = state.displayedStatus
+                if (displayedStatus != null) {
+                    CurrentStatusRow(
+                        displayedStatus = displayedStatus,
+                        onClick = { state.eventSink(UserStatusEvent.OpenPicker) },
+                        onClear = { state.eventSink(UserStatusEvent.ClearStatus) },
+                        modifier = modifier,
+                    )
+                } else {
+                    EmptyStatusRow(
+                        onClick = { state.eventSink(UserStatusEvent.OpenPicker) },
+                        modifier = modifier,
+                    )
+                }
+            }
+            is UserStatusPickerState.CustomInput -> {
+                CustomStatusInputRow(
+                    emoji = pickerState.emoji,
+                    textFieldState = pickerState.textFieldState,
+                    rawStatus = state.rawStatus,
+                    onConfirm = {
+                        state.eventSink(
+                            UserStatusEvent.SetStatus(UserStatus(pickerState.emoji, pickerState.textFieldState.text.toString()))
+                        )
+                    },
+                    onCancel = { state.eventSink(UserStatusEvent.CancelCustomInput) },
+                    onEmojiClick = { state.eventSink(UserStatusEvent.OpenEmojiPicker) },
+                    modifier = modifier,
                 )
             }
         }
-        is UserStatusPickerState.CustomInput -> {
-            CustomStatusInputRow(
-                emoji = pickerState.emoji,
-                textFieldState = pickerState.textFieldState,
-                rawStatus = state.rawStatus,
-                onConfirm = {
-                    state.eventSink(
-                        UserStatusEvent.SetStatus(UserStatus(pickerState.emoji, pickerState.textFieldState.text.toString()))
-                    )
-                },
-                onCancel = { state.eventSink(UserStatusEvent.CancelCustomInput) },
-                onEmojiClick = { state.eventSink(UserStatusEvent.OpenEmojiPicker) },
-                modifier = modifier,
+    }
+    when (val pickerState = state.pickerState) {
+        UserStatusPickerState.Hidden -> Unit
+        UserStatusPickerState.ShowingPicker -> {
+            UserStatusPickerBottomSheet(
+                currentRawStatus = state.rawStatus,
+                onDismiss = { state.eventSink(UserStatusEvent.DismissPicker) },
+                onSelectPredefinedStatus = { status -> state.eventSink(UserStatusEvent.SetStatus(status)) },
+                onSelectCustomStatus = { state.eventSink(UserStatusEvent.OpenCustomInput) },
             )
+        }
+        is UserStatusPickerState.CustomInput -> {
             when (val sheet = pickerState.emojiPickerSheetState) {
-                EmojiPickerSheetState.Hidden, EmojiPickerSheetState.Loading -> Unit
+                EmojiPickerSheetState.Hidden,
+                EmojiPickerSheetState.Loading -> Unit
                 is EmojiPickerSheetState.Shown -> EmojiPickerBottomSheet(
                     pickerState = sheet.state,
                     emojiPickerRenderer = emojiPickerRenderer,
@@ -130,10 +149,9 @@ private fun EmptyStatusRow(
     modifier: Modifier = Modifier,
 ) {
     ListItem(
-        headlineContent = {
+        content = {
             Text(
                 text = stringResource(R.string.screen_settings_user_status_placeholder),
-                modifier = Modifier.padding(vertical = 16.dp),
             )
         },
         leadingContent = ListItemContent.Icon(IconSource.Vector(CompoundIcons.Reaction())),
@@ -153,7 +171,7 @@ private fun CurrentStatusRow(
         is DisplayedStatus.InCall -> "🎧" to stringResource(CommonStrings.common_on_a_call)
     }
     ListItem(
-        headlineContent = { Text(text = text, modifier = Modifier.padding(vertical = 16.dp)) },
+        content = { Text(text = text) },
         leadingContent = ListItemContent.Custom { EmojiText(emoji) },
         trailingContent = ListItemContent.Custom({
             IconButton(
@@ -209,7 +227,7 @@ private fun UserStatusPickerBottomSheet(
             val predefinedUserStatus = UserStatus(emoji = predefined.emoji, text = label)
             val isSelected = currentRawStatus == predefinedUserStatus
             ListItem(
-                headlineContent = { Text(text = label) },
+                content = { Text(text = label) },
                 leadingContent = ListItemContent.Custom { EmojiText(predefined.emoji) },
                 trailingContent = if (isSelected) {
                     ListItemContent.Icon(IconSource.Vector(CompoundIcons.Check()), tintColor = ElementTheme.colors.iconAccentPrimary)
@@ -224,7 +242,7 @@ private fun UserStatusPickerBottomSheet(
             )
         }
         ListItem(
-            headlineContent = {
+            content = {
                 Text(text = stringResource(R.string.screen_settings_user_status_custom))
             },
             leadingContent = ListItemContent.Custom { EmojiText("✏️") },
@@ -261,7 +279,7 @@ private fun CustomStatusInputRow(
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
     ListItem(
-        headlineContent = {
+        content = {
             TextField(
                 modifier = Modifier.focusRequester(focusRequester),
                 state = textFieldState,
@@ -313,7 +331,11 @@ private fun CustomStatusInputRow(
                 modifier = Modifier
                     .size(50.dp)
                     .clip(CircleShape)
-                    .clickable(onClick = onEmojiClick),
+                    .clickable(
+                        interactionSource = null,
+                        indication = ripple(focusRingShape = CircleShape),
+                        onClick = onEmojiClick,
+                    ),
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     EmojiText(emoji)
@@ -354,7 +376,7 @@ private fun EmojiPickerBottomSheet(
 
 @PreviewsDayNight
 @Composable
-internal fun UserStatusViewPreview(@PreviewParameter(UserStatusStateProvider::class) state: UserStatusState) = ElementPreview {
+internal fun UserStatusViewPreview(@PreviewParameter(UserStatusStatePreviewParam::class) state: UserStatusState) = ElementPreview {
     UserStatusView(
         state = state,
         emojiPickerRenderer = NoOpEmojiPickerRenderer,

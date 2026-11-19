@@ -16,7 +16,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
 import io.element.android.features.leaveroom.api.LeaveRoomEvent
-import io.element.android.features.leaveroom.api.R
 import io.element.android.libraries.designsystem.components.ProgressDialog
 import io.element.android.libraries.designsystem.components.async.AsyncActionView
 import io.element.android.libraries.designsystem.components.dialogs.ConfirmationDialog
@@ -139,7 +138,7 @@ private fun LeaveRoomProgressDialog(modifier: Modifier = Modifier) {
 @PreviewsDayNight
 @Composable
 internal fun LeaveRoomViewPreview(
-    @PreviewParameter(InternalLeaveRoomStateProvider::class) state: InternalLeaveRoomState
+    @PreviewParameter(InternalLeaveRoomStatePreviewParam::class) state: InternalLeaveRoomState
 ) = ElementPreview {
     Box(
         modifier = Modifier.size(300.dp, 300.dp),

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeightIn
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -76,7 +77,7 @@ import io.element.android.libraries.matrix.api.timeline.item.event.MessageConten
 import io.element.android.libraries.matrix.api.timeline.item.event.TextMessageType
 import io.element.android.libraries.matrix.api.timeline.item.event.toEventOrTransactionId
 import io.element.android.libraries.matrix.ui.messages.reply.InReplyToDetails
-import io.element.android.libraries.matrix.ui.messages.reply.InReplyToDetailsProvider
+import io.element.android.libraries.matrix.ui.messages.reply.InReplyToDetailsPreviewParam
 import io.element.android.libraries.matrix.ui.messages.reply.aProfileDetailsReady
 import io.element.android.libraries.testtags.TestTags
 import io.element.android.libraries.testtags.testTag
@@ -131,6 +132,8 @@ fun TextComposer(
     resolveAtRoomMentionDisplay: () -> TextDisplay,
     modifier: Modifier = Modifier,
     showTextFormatting: Boolean = false,
+    isInThreadTimeline: Boolean = false,
+    onAddEmoji: (() -> Unit)? = null,
 ) {
     val markdown = when (state) {
         is TextEditorState.Markdown -> state.state.text.value()
@@ -153,13 +156,15 @@ fun TextComposer(
         .fillMaxSize()
         .height(IntrinsicSize.Min)
 
-    val placeholder = if (composerMode.inThread) {
+    val placeholder = if (composerMode.inThread || composerMode is MessageComposerMode.Normal && isInThreadTimeline) {
         stringResource(id = CommonStrings.action_reply_in_thread)
     } else if (composerMode is MessageComposerMode.Attachment || composerMode is MessageComposerMode.EditCaption) {
         stringResource(id = R.string.rich_text_editor_composer_caption_placeholder)
     } else {
         stringResource(id = R.string.rich_text_editor_composer_placeholder)
     }
+    val canSendTextMessage = markdown.isNotBlank() || composerMode is MessageComposerMode.Attachment
+
     val textInput: @Composable () -> Unit = when (state) {
         is TextEditorState.Rich -> {
             val coroutineScope = rememberCoroutineScope()
@@ -209,12 +214,16 @@ fun TextComposer(
                     composerMode = composerMode,
                     onResetComposerMode = onResetComposerMode,
                     isTextEmpty = state.state.text.value().isEmpty(),
+                    trailingContent = onAddEmoji?.let { onClick ->
+                        @Composable { AddEmojiButton(onClick = onClick) }
+                    },
                 ) {
                     MarkdownTextInput(
                         state = state.state,
                         placeholder = placeholder,
                         placeholderColor = ElementTheme.colors.textSecondary,
                         onTyping = onTyping,
+                        onSendMessage = { if (canSendTextMessage) onSendMessage() },
                         onReceiveSuggestion = onReceiveSuggestion,
                         richTextEditorStyle = style,
                         onSelectRichContent = onSelectRichContent,
@@ -223,8 +232,6 @@ fun TextComposer(
             }
         }
     }
-
-    val canSendTextMessage = markdown.isNotBlank() || composerMode is MessageComposerMode.Attachment
 
     val textFormattingOptions: @Composable (() -> Unit)? = (state as? TextEditorState.Rich)?.let {
         @Composable { TextFormatting(state = it.richTextEditorState) }
@@ -243,6 +250,20 @@ fun TextComposer(
         canSendTextMessage,
     ) {
         when {
+            composerMode.isEditing -> EndButtonParams(
+                endButtonContentDescriptionResId = CommonStrings.action_send_edited_message,
+                endButtonClick = {
+                    if (canSendTextMessage) {
+                        onSendMessage()
+                    }
+                },
+                endButtonContent = @Composable {
+                    SendButtonIcon(
+                        canSendMessage = canSendTextMessage,
+                        isEditing = true,
+                    )
+                },
+            )
             !canSendTextMessage ->
                 when (voiceMessageState) {
                     VoiceMessageState.Idle -> EndButtonParams(
@@ -294,18 +315,6 @@ fun TextComposer(
                         )
                     }
                 }
-            composerMode.isEditing -> EndButtonParams(
-                endButtonContentDescriptionResId = CommonStrings.action_send_edited_message,
-                endButtonClick = {
-                    onSendMessage()
-                },
-                endButtonContent = @Composable {
-                    SendButtonIcon(
-                        canSendMessage = true,
-                        isEditing = true,
-                    )
-                },
-            )
             else -> EndButtonParams(
                 endButtonContentDescriptionResId = CommonStrings.action_send_message,
                 endButtonClick = {
@@ -366,6 +375,7 @@ fun TextComposer(
                     waveform = voiceMessageState.waveform,
                     playbackProgress = voiceMessageState.playbackProgress,
                     time = voiceMessageState.time,
+                    duration = voiceMessageState.duration,
                     onPlayClick = onPlayVoiceMessageClick,
                     onPauseClick = onPauseVoiceMessageClick,
                     onSeek = onSeekVoiceMessage,
@@ -640,6 +650,7 @@ private fun TextInputBox(
     onResetComposerMode: () -> Unit,
     isTextEmpty: Boolean,
     modifier: Modifier = Modifier,
+    trailingContent: (@Composable () -> Unit)? = null,
     textInput: @Composable () -> Unit,
 ) {
     val bgColor = ElementTheme.colors.bgSubtleSecondary
@@ -665,30 +676,58 @@ private fun TextInputBox(
             Spacer(Modifier.height(4.dp))
         }
 
-        Box(
-            modifier = Modifier
-                .padding(top = 1.dp, bottom = 4.dp, start = 12.dp, end = 12.dp)
-                .then(Modifier.testTag(TestTags.textEditor)),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            textInput()
-            if (isTextEmpty && composerMode.showCaptionCompatibilityWarning()) {
-                var showBottomSheet by remember { mutableStateOf(false) }
-                Icon(
-                    modifier = Modifier
-                        .clickable { showBottomSheet = true }
-                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
-                        .align(Alignment.CenterEnd),
-                    imageVector = CompoundIcons.InfoSolid(),
-                    tint = ElementTheme.colors.iconCriticalPrimary,
-                    contentDescription = stringResource(CommonStrings.a11y_info),
-                )
-                if (showBottomSheet) {
-                    CaptionWarningBottomSheet(
-                        onDismiss = { showBottomSheet = false },
+        Row(verticalAlignment = Alignment.Bottom) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 1.dp, bottom = 4.dp, start = 12.dp, end = if (trailingContent != null) 0.dp else 12.dp)
+                    .weight(1f)
+                    .then(Modifier.testTag(TestTags.textEditor)),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                textInput()
+                if (isTextEmpty && composerMode.showCaptionCompatibilityWarning()) {
+                    var showBottomSheet by remember { mutableStateOf(false) }
+                    Icon(
+                        modifier = Modifier
+                            .clickable { showBottomSheet = true }
+                            .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp)
+                            .align(Alignment.CenterEnd),
+                        imageVector = CompoundIcons.InfoSolid(),
+                        tint = ElementTheme.colors.iconCriticalPrimary,
+                        contentDescription = stringResource(CommonStrings.a11y_info),
                     )
+                    if (showBottomSheet) {
+                        CaptionWarningBottomSheet(
+                            onDismiss = { showBottomSheet = false },
+                        )
+                    }
                 }
             }
+            trailingContent?.invoke()
+        }
+    }
+}
+
+@Composable
+private fun AddEmojiButton(onClick: () -> Unit) {
+    // The box is sized exactly to one line of the text input (34 dp plus the 4 dp bottom padding), so the
+    // button neither expands the composer nor drifts off the centre line of the text. The 40 dp button
+    // overflows the box by equal margins top and bottom while retaining its full touch target.
+    Box(
+        modifier = Modifier
+            .padding(end = 2.dp, bottom = 4.dp)
+            .size(width = 40.dp, height = 34.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        IconButton(
+            modifier = Modifier.requiredSize(40.dp),
+            onClick = onClick,
+        ) {
+            Icon(
+                imageVector = CompoundIcons.Reaction(),
+                contentDescription = stringResource(R.string.rich_text_editor_a11y_add_emoji),
+                tint = ElementTheme.colors.iconSecondary,
+            )
         }
     }
 }
@@ -731,6 +770,21 @@ internal fun TextComposerSimplePreview() = ElementPreview {
             state = textEditorState,
             voiceMessageState = VoiceMessageState.Idle,
             composerMode = MessageComposerMode.Normal,
+        )
+    }
+}
+
+@PreviewsDayNight
+@Composable
+internal fun TextComposerWithEmojiButtonPreview() = ElementPreview {
+    PreviewColumn(
+        items = aTextEditorStateMarkdownList()
+    ) { textEditorState ->
+        ATextComposer(
+            state = textEditorState,
+            voiceMessageState = VoiceMessageState.Idle,
+            composerMode = MessageComposerMode.Normal,
+            onAddEmoji = {},
         )
     }
 }
@@ -857,7 +911,7 @@ internal fun MarkdownTextComposerEditPreview() = ElementPreview {
 
 @PreviewsDayNight
 @Composable
-internal fun TextComposerReplyPreview(@PreviewParameter(InReplyToDetailsProvider::class) inReplyToDetails: InReplyToDetails) = ElementPreview {
+internal fun TextComposerReplyPreview(@PreviewParameter(InReplyToDetailsPreviewParam::class) inReplyToDetails: InReplyToDetails) = ElementPreview {
     PreviewColumn(
         items = aTextEditorStateRichList()
     ) { textEditorState ->
@@ -881,7 +935,7 @@ internal fun TextComposerReplyPreview(@PreviewParameter(InReplyToDetailsProvider
     heightDp = 800,
 )
 @Composable
-internal fun TextComposerReplyNotEncryptedPreview(@PreviewParameter(InReplyToDetailsProvider::class) inReplyToDetails: InReplyToDetails) = ElementPreview {
+internal fun TextComposerReplyNotEncryptedPreview(@PreviewParameter(InReplyToDetailsPreviewParam::class) inReplyToDetails: InReplyToDetails) = ElementPreview {
     PreviewColumn(
         items = aTextEditorStateRichList(isRoomEncrypted = false)
     ) { textEditorState ->
@@ -925,6 +979,7 @@ internal fun TextComposerVoicePreview() = ElementPreview {
                 showCursor = false,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 0.seconds,
+                duration = 61.seconds,
                 playbackProgress = 0.0f,
             ),
             VoiceMessageState.Preview(
@@ -933,6 +988,7 @@ internal fun TextComposerVoicePreview() = ElementPreview {
                 showCursor = true,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 3.seconds,
+                duration = 0.seconds,
                 playbackProgress = 0.2f,
             ),
             VoiceMessageState.Preview(
@@ -941,6 +997,7 @@ internal fun TextComposerVoicePreview() = ElementPreview {
                 showCursor = false,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 61.seconds,
+                duration = 61.seconds,
                 playbackProgress = 0.0f,
             ),
         )
@@ -968,6 +1025,7 @@ internal fun TextComposerVoiceNotEncryptedPreview() = ElementPreview {
                 showCursor = false,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 0.seconds,
+                duration = 61.seconds,
                 playbackProgress = 0.0f
             ),
             VoiceMessageState.Preview(
@@ -976,6 +1034,7 @@ internal fun TextComposerVoiceNotEncryptedPreview() = ElementPreview {
                 showCursor = true,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 3.seconds,
+                duration = 0.seconds,
                 playbackProgress = 0.2f
             ),
             VoiceMessageState.Preview(
@@ -984,6 +1043,7 @@ internal fun TextComposerVoiceNotEncryptedPreview() = ElementPreview {
                 showCursor = false,
                 waveform = WaveFormSamples.realisticWaveForm,
                 time = 61.seconds,
+                duration = 61.seconds,
                 playbackProgress = 0.0f
             ),
         )
@@ -1053,10 +1113,12 @@ private fun ATextComposer(
     voiceMessageState: VoiceMessageState,
     composerMode: MessageComposerMode,
     showTextFormatting: Boolean = false,
+    onAddEmoji: (() -> Unit)? = null,
 ) {
     TextComposer(
         state = state,
         showTextFormatting = showTextFormatting,
+        onAddEmoji = onAddEmoji,
         voiceMessageState = voiceMessageState,
         composerMode = composerMode,
         onRequestFocus = {},

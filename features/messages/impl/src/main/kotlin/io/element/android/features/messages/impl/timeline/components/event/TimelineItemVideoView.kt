@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import io.element.android.compound.tokens.generated.CompoundIcons
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVideoContent
-import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVideoContentProvider
+import io.element.android.features.messages.impl.timeline.model.event.TimelineItemVideoContentPreviewParam
 import io.element.android.features.messages.impl.timeline.model.event.aTimelineItemVideoContent
 import io.element.android.features.messages.impl.timeline.protection.ProtectedView
 import io.element.android.features.messages.impl.timeline.protection.coerceRatioWhenHidingContent
@@ -47,12 +48,12 @@ import io.element.android.libraries.designsystem.modifiers.onKeyboardContextMenu
 import io.element.android.libraries.designsystem.modifiers.roundedBackground
 import io.element.android.libraries.designsystem.preview.ElementPreview
 import io.element.android.libraries.designsystem.preview.PreviewsDayNight
-import io.element.android.libraries.matrix.ui.media.MAX_THUMBNAIL_HEIGHT
-import io.element.android.libraries.matrix.ui.media.MAX_THUMBNAIL_WIDTH
-import io.element.android.libraries.matrix.ui.media.MediaRequestData
 import io.element.android.libraries.matrix.ui.media.contentvalidation.ContentValidationState
 import io.element.android.libraries.matrix.ui.media.contentvalidation.NoopContentValidationState
 import io.element.android.libraries.matrix.ui.media.contentvalidation.collectOverallState
+import io.element.android.libraries.matrixmedia.api.MAX_THUMBNAIL_HEIGHT
+import io.element.android.libraries.matrixmedia.api.MAX_THUMBNAIL_WIDTH
+import io.element.android.libraries.matrixmedia.api.MediaRequestData
 import io.element.android.libraries.ui.strings.CommonStrings
 import io.element.android.libraries.ui.utils.a11y.isTalkbackActive
 
@@ -70,10 +71,11 @@ fun TimelineItemVideoView(
     val a11yLabel = stringResource(CommonStrings.common_video)
     val description = content.caption?.let { "$a11yLabel: $it" } ?: a11yLabel
     Column(modifier = modifier.wrapContentWidth(Alignment.CenterHorizontally)) {
-        val containerModifier = if (content.showCaption) {
+        val containerShape = if (content.showCaption) RoundedCornerShape(6.dp) else null
+        val containerModifier = if (containerShape != null) {
             Modifier
                 .padding(top = 6.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(containerShape)
         } else {
             Modifier
         }
@@ -98,6 +100,8 @@ fun TimelineItemVideoView(
                             if (!isTalkbackActive && onContentClick != null) {
                                 Modifier
                                     .combinedClickable(
+                                        interactionSource = null,
+                                        indication = ripple(focusRingShape = containerShape),
                                         onClick = onContentClick,
                                         onLongClick = onLongClick,
                                     )
@@ -150,7 +154,7 @@ fun TimelineItemVideoView(
 
 @PreviewsDayNight
 @Composable
-internal fun TimelineItemVideoViewPreview(@PreviewParameter(TimelineItemVideoContentProvider::class) content: TimelineItemVideoContent) = ElementPreview {
+internal fun TimelineItemVideoViewPreview(@PreviewParameter(TimelineItemVideoContentPreviewParam::class) content: TimelineItemVideoContent) = ElementPreview {
     TimelineItemVideoView(
         content = content,
         hideMediaContent = false,

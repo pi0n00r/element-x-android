@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -33,7 +34,7 @@ import io.element.android.features.messages.impl.timeline.aTimelineItemEvent
 import io.element.android.features.messages.impl.timeline.components.ATimelineItemEventRow
 import io.element.android.features.messages.impl.timeline.model.TimelineItemGroupPosition
 import io.element.android.features.messages.impl.timeline.model.event.TimelineItemImageContent
-import io.element.android.features.messages.impl.timeline.model.event.TimelineItemImageContentProvider
+import io.element.android.features.messages.impl.timeline.model.event.TimelineItemImageContentPreviewParam
 import io.element.android.features.messages.impl.timeline.model.event.aTimelineItemImageContent
 import io.element.android.features.messages.impl.timeline.protection.ProtectedView
 import io.element.android.features.messages.impl.timeline.protection.coerceRatioWhenHidingContent
@@ -64,8 +65,9 @@ fun TimelineItemImageView(
     val a11yLabel = stringResource(CommonStrings.common_image)
     val description = content.caption?.let { "$a11yLabel: $it" } ?: a11yLabel
     Column(modifier = modifier.wrapContentWidth(Alignment.CenterHorizontally)) {
-        val containerModifier = if (content.showCaption) {
-            Modifier.clip(RoundedCornerShape(10.dp))
+        val containerShape = if (content.showCaption) RoundedCornerShape(10.dp) else null
+        val containerModifier = if (containerShape != null) {
+            Modifier.clip(containerShape)
         } else {
             Modifier
         }
@@ -94,6 +96,8 @@ fun TimelineItemImageView(
                                 if (!isTalkbackActive() && onContentClick != null) {
                                     Modifier
                                         .combinedClickable(
+                                            interactionSource = null,
+                                            indication = ripple(focusRingShape = containerShape),
                                             onClick = onContentClick,
                                             onLongClick = onLongClick,
                                         )
@@ -125,7 +129,7 @@ fun TimelineItemImageView(
 
 @PreviewsDayNight
 @Composable
-internal fun TimelineItemImageViewPreview(@PreviewParameter(TimelineItemImageContentProvider::class) content: TimelineItemImageContent) = ElementPreview {
+internal fun TimelineItemImageViewPreview(@PreviewParameter(TimelineItemImageContentPreviewParam::class) content: TimelineItemImageContent) = ElementPreview {
     TimelineItemImageView(
         content = content,
         hideMediaContent = false,

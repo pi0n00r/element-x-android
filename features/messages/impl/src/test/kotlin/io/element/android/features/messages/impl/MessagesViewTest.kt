@@ -11,6 +11,8 @@
 package io.element.android.features.messages.impl
 
 import androidx.activity.ComponentActivity
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.test.AndroidComposeUiTest
@@ -37,10 +39,13 @@ import io.element.android.features.messages.impl.actionlist.anActionListState
 import io.element.android.features.messages.impl.actionlist.model.TimelineItemAction
 import io.element.android.features.messages.impl.crypto.sendfailure.VerifiedUserSendFailure
 import io.element.android.features.messages.impl.crypto.sendfailure.resolve.aChangedIdentitySendFailure
+import io.element.android.features.messages.impl.messagecomposer.ComposerEmojiPicker
 import io.element.android.features.messages.impl.messagecomposer.aMessageComposerState
 import io.element.android.features.messages.impl.pinned.banner.PinnedMessagesBannerItem
 import io.element.android.features.messages.impl.pinned.banner.aLoadedPinnedMessagesBannerState
 import io.element.android.features.messages.impl.timeline.FOCUS_ON_PINNED_EVENT_DEBOUNCE_DURATION_IN_MILLIS
+import io.element.android.features.messages.impl.timeline.SelectionAction
+import io.element.android.features.messages.impl.timeline.SelectionState
 import io.element.android.features.messages.impl.timeline.TimelineEvent
 import io.element.android.features.messages.impl.timeline.aTimelineItemEvent
 import io.element.android.features.messages.impl.timeline.aTimelineItemList
@@ -55,12 +60,14 @@ import io.element.android.features.messages.impl.timeline.components.receipt.aRe
 import io.element.android.features.messages.impl.timeline.components.receipt.bottomsheet.ReadReceiptBottomSheetEvent
 import io.element.android.features.messages.impl.timeline.model.TimelineItem
 import io.element.android.features.messages.impl.timeline.model.event.aTimelineItemTextContent
+import io.element.android.features.messages.impl.timeline.sendfailure.SendFailureDialogState
 import io.element.android.features.roomcall.api.aStandByCallState
 import io.element.android.libraries.emoji.impl.picker.DefaultEmojiPickerRenderer
 import io.element.android.libraries.emoji.impl.picker.anEmojiPickerState
 import io.element.android.libraries.matrix.api.core.RoomId
 import io.element.android.libraries.matrix.api.core.UserId
 import io.element.android.libraries.matrix.api.room.tombstone.SuccessorRoom
+import io.element.android.libraries.matrix.api.timeline.item.event.LocalEventSendState
 import io.element.android.libraries.matrix.api.timeline.item.event.getAvatarUrl
 import io.element.android.libraries.matrix.api.timeline.item.event.getDisplayName
 import io.element.android.libraries.matrix.api.user.MatrixUser
@@ -84,6 +91,7 @@ import io.element.android.tests.testutils.robolectric.RobolectricTest
 import io.element.android.tests.testutils.setSafeContent
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import org.junit.Test
 import org.robolectric.annotation.Config
 import kotlin.time.Duration.Companion.milliseconds
@@ -165,6 +173,33 @@ class MessagesViewTest : RobolectricTest() {
         val callback = EnsureCalledOnceWithTwoParamsAndResult(
             expectedParam1 = true,
             expectedParam2 = timelineItem,
+            result = true,
+        )
+        setMessagesView(
+            state = state,
+            onEventClick = callback,
+        )
+        // Cannot perform click on "Text", it's not detected. Use tag instead
+        onAllNodesWithTag(TestTags.messageBubble.value).onFirst().performClick()
+        callback.assertSuccess()
+    }
+
+    @Test
+    fun `clicking on an Event which has not been sent yet invoke expected callback`() = runAndroidComposeUiTest {
+        val eventsRecorder = EventsRecorder<MessagesEvent>(expectEvents = false)
+        val localEcho = aTimelineItemEvent(
+            isMine = true,
+            content = aTimelineItemTextContent(),
+        ).copy(eventId = null)
+        val state = aMessagesState(
+            timelineState = aTimelineState(
+                timelineItems = persistentListOf(localEcho),
+            ),
+            eventSink = eventsRecorder
+        )
+        val callback = EnsureCalledOnceWithTwoParamsAndResult(
+            expectedParam1 = true,
+            expectedParam2 = localEcho,
             result = true,
         )
         setMessagesView(
@@ -524,11 +559,85 @@ class MessagesViewTest : RobolectricTest() {
         // Clear initial 'LoadMore' event emitted when setting the state
         eventsRecorder.clear()
 
-        val verifiedUserSendFailure = activity!!.getString(CommonStrings.screen_timeline_item_menu_send_failure_changed_identity, "Alice")
+        val verifiedUserSendFailure = activity!!.getString(R.string.screen_timeline_item_menu_send_failure_changed_identity, "Alice")
         onNodeWithText(verifiedUserSendFailure).performClick()
         // Give time for the close animation to complete
         mainClock.advanceTimeBy(milliseconds = 1_000)
         eventsRecorder.assertSingle(TimelineEvent.ComputeVerifiedUserSendFailure(timelineItem))
+    }
+
+    @Test
+    fun `clicking on retry in the send failure dialog emits the expected Events`() = runAndroidComposeUiTest {
+        val messagesEventsRecorder = EventsRecorder<MessagesEvent>()
+        val timelineEventsRecorder = EventsRecorder<TimelineEvent>()
+        val timelineItem = aTimelineItemEvent(sendState = LocalEventSendState.Failed.Unknown("Error"))
+        setMessagesView(
+            state = aMessagesState(
+                timelineState = aTimelineState(
+                    sendFailureDialogState = SendFailureDialogState.Show(
+                        event = timelineItem,
+                        sendFailureType = SendFailureDialogState.SendFailureType.Error("Error"),
+                    ),
+                    eventSink = timelineEventsRecorder,
+                ),
+                eventSink = messagesEventsRecorder,
+            ),
+        )
+        // Clear initial 'LoadMore' event emitted when setting the state
+        timelineEventsRecorder.clear()
+
+        clickOn(CommonStrings.action_retry)
+        messagesEventsRecorder.assertSingle(MessagesEvent.HandleAction(TimelineItemAction.RetrySending, timelineItem))
+        timelineEventsRecorder.assertSingle(TimelineEvent.HideSendFailureDialog)
+    }
+
+    @Test
+    fun `clicking on remove message in the send failure dialog emits the expected Events`() = runAndroidComposeUiTest {
+        val messagesEventsRecorder = EventsRecorder<MessagesEvent>()
+        val timelineEventsRecorder = EventsRecorder<TimelineEvent>()
+        val timelineItem = aTimelineItemEvent(sendState = LocalEventSendState.Failed.Unknown("Error"))
+        setMessagesView(
+            state = aMessagesState(
+                timelineState = aTimelineState(
+                    sendFailureDialogState = SendFailureDialogState.Show(
+                        event = timelineItem,
+                        sendFailureType = SendFailureDialogState.SendFailureType.Error("Error"),
+                    ),
+                    eventSink = timelineEventsRecorder,
+                ),
+                eventSink = messagesEventsRecorder,
+            ),
+        )
+        // Clear initial 'LoadMore' event emitted when setting the state
+        timelineEventsRecorder.clear()
+
+        clickOn(CommonStrings.action_remove_message)
+        messagesEventsRecorder.assertSingle(MessagesEvent.HandleAction(TimelineItemAction.AbortSending, timelineItem))
+        timelineEventsRecorder.assertSingle(TimelineEvent.HideSendFailureDialog)
+    }
+
+    @Test
+    fun `cancelling the send failure dialog emits the expected Event`() = runAndroidComposeUiTest {
+        val messagesEventsRecorder = EventsRecorder<MessagesEvent>(expectEvents = false)
+        val timelineEventsRecorder = EventsRecorder<TimelineEvent>()
+        val timelineItem = aTimelineItemEvent(sendState = LocalEventSendState.Failed.Unknown("Error"))
+        setMessagesView(
+            state = aMessagesState(
+                timelineState = aTimelineState(
+                    sendFailureDialogState = SendFailureDialogState.Show(
+                        event = timelineItem,
+                        sendFailureType = SendFailureDialogState.SendFailureType.Error("Error"),
+                    ),
+                    eventSink = timelineEventsRecorder,
+                ),
+                eventSink = messagesEventsRecorder,
+            ),
+        )
+        // Clear initial 'LoadMore' event emitted when setting the state
+        timelineEventsRecorder.clear()
+
+        clickOn(CommonStrings.action_cancel)
+        timelineEventsRecorder.assertSingle(TimelineEvent.HideSendFailureDialog)
     }
 
     @Test
@@ -680,6 +789,30 @@ class MessagesViewTest : RobolectricTest() {
         clickOn(CommonStrings.screen_room_live_location_banner)
         eventsRecorder.assertSingle(MessagesEvent.ShowLiveLocationShare)
     }
+
+    @Test
+    fun `the knock requests banner is hidden in selection mode`() = runAndroidComposeUiTest {
+        val state = aMessagesState(
+            timelineState = aTimelineState(
+                selectionState = SelectionState.Active(SelectionAction.Forward, persistentSetOf(AN_EVENT_ID)),
+            ),
+        )
+        setMessagesView(
+            state = state,
+            knockRequestsBannerView = { Text("Knock requests banner") },
+        )
+        onNodeWithText("Knock requests banner").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the knock requests banner is visible outside of selection mode`() = runAndroidComposeUiTest {
+        val state = aMessagesState()
+        setMessagesView(
+            state = state,
+            knockRequestsBannerView = { Text("Knock requests banner") },
+        )
+        onNodeWithText("Knock requests banner").assertExists()
+    }
 }
 
 private fun AndroidComposeUiTest<ComponentActivity>.setMessagesView(
@@ -695,6 +828,7 @@ private fun AndroidComposeUiTest<ComponentActivity>.setMessagesView(
     onJoinCallClick: (Boolean) -> Unit = EnsureNeverCalledWithParam(),
     onViewAllPinnedMessagesClick: () -> Unit = EnsureNeverCalled(),
     onThreadsListClicked: () -> Unit = EnsureNeverCalled(),
+    knockRequestsBannerView: @Composable () -> Unit = {},
 ) {
     val emojiPickerRenderer = DefaultEmojiPickerRenderer()
     setSafeContent {
@@ -712,7 +846,7 @@ private fun AndroidComposeUiTest<ComponentActivity>.setMessagesView(
                 onCreatePollClick = onCreatePollClick,
                 onJoinCallClick = onJoinCallClick,
                 onViewAllPinnedMessagesClick = onViewAllPinnedMessagesClick,
-                knockRequestsBannerView = {},
+                knockRequestsBannerView = knockRequestsBannerView,
                 customReactionBottomSheet = {
                     CustomReactionBottomSheet(
                         state = state.customReactionState,
@@ -720,6 +854,13 @@ private fun AndroidComposeUiTest<ComponentActivity>.setMessagesView(
                             state.eventSink(MessagesEvent.ToggleReaction(emoji.unicode, uniqueId))
                         },
                         emojiPickerRenderer = emojiPickerRenderer,
+                    )
+                },
+                composerEmojiPicker = { height ->
+                    ComposerEmojiPicker(
+                        state = state.composerState,
+                        emojiPickerRenderer = emojiPickerRenderer,
+                        height = height,
                     )
                 },
                 onThreadsListClick = onThreadsListClicked,

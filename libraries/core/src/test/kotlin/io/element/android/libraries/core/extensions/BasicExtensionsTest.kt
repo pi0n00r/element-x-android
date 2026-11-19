@@ -74,4 +74,20 @@ class BasicExtensionsTest {
         val result = textWithDirectionOverrides.filterDirectionOverrides()
         assertEquals("123456789", result)
     }
+
+    @Test
+    fun `normalized removes accents and replace special characters from text`() {
+        assertEquals("Stefan", "Ștefan".normalized())
+        assertEquals("ca enleve etre", "ça enlève être".normalized())
+    }
+
+    @Test
+    fun `test isUuid`() {
+        assertTrue("123e4567-e89b-12d3-a456-426614174000".isUuid())
+        assertTrue("123E4567-E89B-12D3-A456-426614174000".isUuid())
+        assertFalse("1-1-1-1-1".isUuid())
+        assertFalse("logs".isUuid())
+        assertFalse("".isUuid())
+        assertFalse("123e4567-e89b-12d3-a456-42661417400z".isUuid())
+    }
 }
